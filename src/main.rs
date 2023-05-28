@@ -1,7 +1,6 @@
 use std::fs::File;
 use std::io::{Read, Write};
 use std::num::NonZeroU32;
-use std::ops::Div;
 use std::path::{Path, PathBuf};
 use std::process::exit;
 use ring::pbkdf2;
@@ -12,7 +11,7 @@ use aes_gcm::aead::rand_core::RngCore;
 use clap::{arg, Command};
 use num_traits::{clamp, pow};
 use ring::pbkdf2::PBKDF2_HMAC_SHA256;
-
+use text_io::{read};
 
 
 fn derive_key_from_password(password: &str, salt: &[u8]) -> [u8; 32] {
@@ -63,7 +62,10 @@ fn main(){
             arg!(-p --password <PASSWORD> "Sets the password for encrypting/decrypting").required(true)
         )
         .arg(
-            arg!(-s --salt <SALT> "Sets the salt for the password")
+            arg!(-s --salt <SALT> "Sets the salt for the password [recommended]")
+        )
+        .arg(
+            arg!(-o --output <FILE> "Sets custom output file")
         )
         .arg(
             arg!(-b --blocksize <BLOCKSIZE> "Sets the block-size for encryption")
@@ -101,7 +103,7 @@ fn main(){
                 // Approximation for optimal block-size
                 clamp(filesize.ilog10() as usize + 1, 4, 10)
             } else { block_size };
-            println!("Block-size set to {}", block_size);
+            println!("Block-size set to {}", pow(2, block_size));
             let password = matches.get_one::<String>("password").expect("Password not provided");
 
 
@@ -125,9 +127,23 @@ fn main(){
                 encrypted_blocks.push((ciphertext, nonce));
             }
 
-            let path = Path::new(operating_path);
-            let backup_path = PathBuf::from(path).to_str().unwrap().to_string() + ".encrypted";
-            let mut newfile = File::create(backup_path).unwrap();
+            let mut output_file_name = PathBuf::from(operating_path).to_str().unwrap().to_string() + ".encrypted";
+            // Check if custom output file has been set
+            if let Some(output_file) = matches.get_one::<String>("output") {
+                // Check if file exists
+                if Path::new(output_file).exists() {
+                    print!("The output file '{}' aldready exists, do you want to replace it? [y/N] ", output_file);
+                    // read until a newline (but not including it)
+                    let replace: String = read!("{}");
+                    if replace.to_lowercase() == "y" {
+                        output_file_name = output_file.clone();
+                    } else {
+                        println!("Cancelling..., you pressed {} ", replace);
+                        exit(0);
+                    }
+                }
+            }
+            let mut newfile = File::create(output_file_name).unwrap();
             let bytes: [u8; 1] = [block_size.ilog2() as u8];
             newfile.write(&bytes).expect("Unable to write at file");
             for (ciphertext, nonce) in encrypted_blocks {
@@ -163,15 +179,33 @@ fn main(){
 
                 position += nonce_length + block_size+16;
             }
+            let final_time = start.elapsed().as_millis();
 
-            let mut output_file_name: String = operating_path.to_string() + (".decrypted").as_ref();
-            // Write the decrypted data to a file
+
+            let mut output_file_name: String = operating_path.to_string() + ".decrypted";
             if operating_path.ends_with(".encrypted") {
                 output_file_name = operating_path.strip_suffix(".encrypted").unwrap().to_string() + ".decrypted";
             }
+            // Check if custom output file has been set
+            if let Some(output_file) = matches.get_one::<String>("output") {
+                // Check if file exists
+                if Path::new(output_file).exists() {
+                    print!("The output file '{}' aldready exists, do you want to replace it? [y/N] ", output_file);
+                    // read until a newline (but not including it)
+                    let replace: String = read!("{}");
+                    if replace.to_lowercase() == "y" {
+
+                        output_file_name = output_file.clone();
+                    } else {
+                        println!("Cancelling... You pressed: {}", replace);
+                        exit(0);
+                    }
+                }
+            }
+            // Write the decrypted data to a file
             let mut output_file = File::create(output_file_name).expect("Error creating output file");
             output_file.write_all(&decrypted_data).expect("Error writing decrypted data");
-            println!("Took {:?}ms to decrypt {:?} bytes", start.elapsed().as_millis(), decrypted_data.len())
+            println!("Took {}ms to decrypt {} bytes", final_time, decrypted_data.len())
         } else{
             println!("Invalid mode mode has to be either 'encryption' / 'e' or 'decryption' / 'd'");
             exit(0);
