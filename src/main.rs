@@ -8,10 +8,10 @@ use aes_gcm::{Aes256Gcm, KeyInit};
 use aes_gcm::aead::{Aead, OsRng};
 use aes_gcm::aead::generic_array::GenericArray;
 use aes_gcm::aead::rand_core::RngCore;
-use aes_gcm::aes::{Aes256Enc};
-use clap::{App, Arg};
+use clap::{arg, ArgAction, Command};
 use num_traits::pow;
 use ring::pbkdf2::PBKDF2_HMAC_SHA256;
+
 
 
 fn derive_key_from_password(password: &str, salt: &[u8]) -> [u8; 32] {
@@ -48,53 +48,31 @@ fn decrypt_text_with_aes_gcm(key: &[u8], ciphertext: &[u8], nonce: &[u8; 12]) ->
     Ok(plaintext)
 }
 
-fn main() {
-    let matches = App::new("File encryptor")
+fn main(){
+    let matches = Command::new("cryptonite")
         .version("0.0.1")
         .author("Víctor Alan")
-        .about("A command-line file encryption tool in rust")
+        .about("A file encryption cli tool")
         .arg(
-            Arg::with_name("encrypt")
-                .short("e")
-                .long("encrypt")
-                .value_name("FILE")
-                .help("Sets the file to encrypt")
-                .takes_value(true)
+            arg!(-e --encrypt <FILE>)
+        ).arg(
+            arg!(-d --decrypt <FILE>)
         )
         .arg(
-            Arg::with_name("decrypt")
-                .short("d")
-                .long("decrypt")
-                .value_name("FILE")
-                .help("Sets the file to decrypt")
-                .takes_value(true)
+            arg!(-p --password <PASSWORD> "Sets the password for encrypting/decrypting").required(true)
         )
         .arg(
-            Arg::with_name("password")
-                .short("p")
-                .long("password")
-                .value_name("PASSWORD")
-                .help("Sets the password for encryption/decryption")
-                .takes_value(true)
+            arg!(-s --salt <SALT> "Sets the salt for the password")
         )
         .arg(
-            Arg::with_name("salt")
-                .short("s")
-                .long("salt")
-                .value_name("SALT")
-                .help("Sets the salt for the password")
-                .takes_value(true)
-        )
-        .arg(
-            Arg::with_name("block_size")
-                .short("b")
-                .long("block-size")
-                .value_name("BLOCK_SIZE")
-                .help("Sets the encryption block size")
-                .takes_value(true)
-        )
-        .get_matches();
-    let mut block_size: usize = if matches.is_present("block_size") { matches.value_of("block_size").unwrap().parse::<usize>().unwrap() } else { 16 };
+            arg!(-b --blocksize <BLOCKSIZE> "Sets the block-size for encryption")
+        ).get_matches();
+
+
+
+    let mut block_size: usize = if matches.contains_id("blocksize") {
+        matches.get_one::<String>("blocksize").unwrap().parse::<usize>().expect("invalid blocksize")
+    } else { 16 };
 
     if !block_size.is_power_of_two() {
         println!("Invalid block size");
@@ -106,18 +84,19 @@ fn main() {
         exit(0);
     }
 
-    if matches.is_present("encrypt") && matches.is_present("decrypt"){
+    if matches.contains_id("encrypt") && matches.contains_id("decrypt"){
         println!("You cannot select encryption and decryption at the same time");
         exit(0)
     }
-    if !matches.is_present("encrypt") && !matches.is_present("decrypt"){
+    if !matches.contains_id("encrypt") && !matches.contains_id("decrypt"){
         println!("You have to select decryption or encryption");
         exit(0)
     }
     let start = std::time::Instant::now();
-    if let Some(encrypt_file) = matches.value_of("encrypt") {
-        let password = matches.value_of("password").expect("Password not provided");
-        let salt = if matches.value_of("salt").is_some() {matches.value_of("salt").unwrap().as_bytes()} else {b""};
+    if let Some(encrypt_file) = matches.get_one::<String>("encrypt") {
+        let password = matches.get_one::<String>("password").expect("Password not provided");
+        let salt = if matches.get_one::<String>("salt").is_some() {matches.get_one::<String>("salt").unwrap().as_bytes()} else {b""};
+        println!("{encrypt_file}");
         let mut file = File::open(encrypt_file).expect("Not a valid file");
         if file.metadata().unwrap().is_dir() {
             println!("File is a directory");
@@ -150,9 +129,9 @@ fn main() {
         println!("Took {:?}ms to encrypt {:?} bytes", start.elapsed().as_millis(), newfile.metadata().unwrap().len())
 
     }
-    if let Some(decrypt_file) = matches.value_of("decrypt") {
-        let password = matches.value_of("password").expect("Password not provided");
-        let salt = if matches.value_of("salt").is_some() {matches.value_of("salt").unwrap().as_bytes()} else {b""};
+    if let Some(decrypt_file) = matches.get_one::<String>("decrypt") {
+        let password = matches.get_one::<String>("password").expect("Password not provided");
+        let salt = if matches.get_one::<String>("salt").is_some() {matches.get_one::<String>("salt").unwrap().as_bytes()} else {b""};
         let mut file = File::open(decrypt_file).expect("Not a valid file");
         let mut buffer = Vec::new();
 
